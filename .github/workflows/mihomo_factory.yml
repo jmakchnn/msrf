@@ -33,6 +33,16 @@ jobs:
           # 重要：获取完整历史，避免推送冲突
           fetch-depth: 0
       
+      - name: 安装 Docker
+        run: |
+          echo "🐳 安装 Docker..."
+          # 确保 Docker 已安装
+          sudo apt-get update
+          sudo apt-get install -y docker.io
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          echo "✅ Docker 安装完成"
+
       - name: 转换规则文件
         run: |
           # 遇到错误立即停止
@@ -45,6 +55,10 @@ jobs:
           # 创建输出目录
           mkdir -p "$OUTPUT_DIR"
           
+          # 拉取最新的 Mihomo Docker 镜像
+          echo "📥 拉取 Mihomo Docker 镜像..."
+          docker pull metacubex/mihomo:latest
+          
           # 使用 Docker 运行 Mihomo 转换
           DOCKER_CMD="docker run --rm -v $PWD:/workspace --user $(id -u):$(id -g) metacubex/mihomo:latest"
           
@@ -55,14 +69,14 @@ jobs:
             filename=$(basename "$file" .list)
             filename=$(basename "$filename" .txt)
             echo "🔄 转换: $filename"
-            $DOCKER_CMD convert-ruleset domain text "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs"
+            $DOCKER_CMD convert-ruleset domain text "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs" || echo "⚠️ 转换失败: $filename"
           done
           
           for file in "$SOURCE_DIR"/domain/*.yaml; do
             [ -e "$file" ] || continue
             filename=$(basename "$file" .yaml)
             echo "🔄 转换: $filename"
-            $DOCKER_CMD convert-ruleset domain yaml "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs"
+            $DOCKER_CMD convert-ruleset domain yaml "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs" || echo "⚠️ 转换失败: $filename"
           done
           
           # 处理 IP 规则
@@ -72,35 +86,39 @@ jobs:
             filename=$(basename "$file" .list)
             filename=$(basename "$filename" .txt)
             echo "🔄 转换: $filename"
-            $DOCKER_CMD convert-ruleset ipcidr text "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs"
+            $DOCKER_CMD convert-ruleset ipcidr text "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs" || echo "⚠️ 转换失败: $filename"
           done
           
           for file in "$SOURCE_DIR"/ip/*.yaml; do
             [ -e "$file" ] || continue
             filename=$(basename "$file" .yaml)
             echo "🔄 转换: $filename"
-            $DOCKER_CMD convert-ruleset ipcidr yaml "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs"
+            $DOCKER_CMD convert-ruleset ipcidr yaml "/workspace/$file" "/workspace/$OUTPUT_DIR/$filename.mrs" || echo "⚠️ 转换失败: $filename"
           done
           
           echo "✅ 转换完成！生成的文件："
           ls -la "$OUTPUT_DIR/"
 
       - name: 提交更改
-        # 重要：只有上一步成功且有文件变更时才提交
         if: success()
         run: |
           echo "📦 检查文件变更..."
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           
+          # 重要修复：强制添加所有 .mrs 文件到 Git 跟踪
+          git add -f rule-set/*.mrs
+          
           # 检查是否有文件需要提交
-          if git diff --quiet --exit-code -- rule-set/; then
+          if git diff --staged --quiet; then
             echo "✅ 没有文件变更，跳过提交"
             exit 0
+          else
+            echo "📝 检测到文件变更，准备提交..."
+            git status
           fi
           
           echo "📝 提交变更到仓库..."
-          git add -f rule-set/*.mrs
           git commit -m "Mihomo: 更新规则集 [skip ci]"
           git push
           
