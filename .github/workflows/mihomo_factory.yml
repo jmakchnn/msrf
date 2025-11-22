@@ -33,15 +33,11 @@ jobs:
           # 重要：获取完整历史，避免推送冲突
           fetch-depth: 0
       
-      - name: 安装 Docker
+      - name: 设置 Docker 环境
         run: |
-          echo "🐳 安装 Docker..."
-          # 确保 Docker 已安装
-          sudo apt-get update
-          sudo apt-get install -y docker.io
-          sudo systemctl start docker
-          sudo systemctl enable docker
-          echo "✅ Docker 安装完成"
+          echo "🐳 检查 Docker 环境..."
+          docker --version
+          echo "✅ Docker 已就绪"
 
       - name: 转换规则文件
         run: |
