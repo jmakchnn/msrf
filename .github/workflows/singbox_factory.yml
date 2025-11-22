@@ -97,13 +97,19 @@ jobs:
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           
-          if git diff --quiet --exit-code -- rule-set/; then
+          # 重要修复：强制添加所有 .srs 文件到 Git 跟踪
+          git add -f rule-set/*.srs
+          
+          # 检查是否有文件需要提交
+          if git diff --staged --quiet; then
             echo "✅ 没有文件变更，跳过提交"
             exit 0
+          else
+            echo "📝 检测到文件变更，准备提交..."
+            git status
           fi
           
           echo "📝 提交变更到仓库..."
-          git add rule-set/
           git commit -m "Sing-box: 更新规则集 [skip ci]"
           git push
           
