@@ -100,7 +100,7 @@ jobs:
           fi
           
           echo "📝 提交变更到仓库..."
-          git add rule-set/
+          git add -f rule-set/*.mrs
           git commit -m "Mihomo: 更新规则集 [skip ci]"
           git push
           
