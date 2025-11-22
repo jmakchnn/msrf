@@ -1,0 +1,110 @@
+name: Sing-box Rule Factory
+
+# 防止工作流冲突
+concurrency:
+  group: singbox-factory-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/*.json'
+      - '.github/workflows/singbox_factory.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  produce-srs-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: 安装 Sing-box
+        run: |
+          set -e
+          echo "📦 安装 Sing-box..."
+          
+          # 使用固定版本确保稳定性
+          VERSION="1.12.12"
+          
+          # 下载并安装
+          wget -q --tries=3 --timeout=30 \
+            "https://github.com/SagerNet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-amd64.tar.gz" \
+            -O sing-box.tar.gz
+          
+          tar -zxvf sing-box.tar.gz
+          sudo mv sing-box-*/sing-box /usr/local/bin/
+          sudo chmod +x /usr/local/bin/sing-box
+          
+          echo "✅ Sing-box 安装完成"
+          sing-box version
+
+      - name: 生成规则集
+        run: |
+          set -e
+          echo "🚀 开始生成 Sing-box 规则集..."
+          
+          OUTPUT_DIR="rule-set"
+          mkdir -p "$OUTPUT_DIR"
+          
+          # 处理远程 AdGuard 规则
+          echo "🌐 下载远程规则..."
+          curl --retry 3 --retry-delay 2 -L -s \
+            "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt" \
+            -o adguard_temp.txt
+          
+          if [ -s "adguard_temp.txt" ]; then
+            echo "🔄 转换 AdGuard 规则..."
+            sing-box rule-set convert --type adguard \
+              --output "${OUTPUT_DIR}/AdGuardSDNSFilter.srs" \
+              adguard_temp.txt
+            echo "✅ AdGuard 规则转换完成"
+            rm adguard_temp.txt
+          else
+            echo "⚠️ AdGuard 规则文件为空，跳过"
+            rm -f adguard_temp.txt
+          fi
+          
+          # 处理本地 JSON 规则
+          echo "📁 处理本地 JSON 规则..."
+          for json_file in src/*.json; do
+            [ -e "$json_file" ] || continue
+            filename=$(basename "$json_file" .json)
+            echo "🔄 编译: $filename"
+            sing-box rule-set compile \
+              --output "${OUTPUT_DIR}/${filename}.srs" \
+              "$json_file"
+          done
+          
+          echo "✅ 所有规则处理完成！生成的文件："
+          ls -la "$OUTPUT_DIR/"
+
+      - name: 提交更改
+        if: success()
+        run: |
+          echo "📦 检查文件变更..."
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          
+          if git diff --quiet --exit-code -- rule-set/; then
+            echo "✅ 没有文件变更，跳过提交"
+            exit 0
+          fi
+          
+          echo "📝 提交变更到仓库..."
+          git add rule-set/
+          git commit -m "Sing-box: 更新规则集 [skip ci]"
+          git push
+          
+          echo "🎉 提交成功！"
